@@ -5,7 +5,6 @@ from imageio import imsave
 import argparse
 from utils.dataset_processing.image import DepthImage
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate depth images from Cornell PCD files.')
     parser.add_argument('path', type=str, help='Path to Cornell Grasping Dataset')

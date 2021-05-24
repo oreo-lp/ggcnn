@@ -6,6 +6,7 @@ import torch.utils.data
 from models.common import post_process_output
 from utils.dataset_processing import evaluation, grasp
 from utils.data import get_dataset
+from models import get_network
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,7 +15,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Evaluate GG-CNN')
 
     # Network
-    parser.add_argument('--network', type=str, help='Path to saved network to evaluate')
+    parser.add_argument('--network', type=str, default='ggcnn', help='Network Name in .models')
+    parser.add_argument('--weights', type=str, help='Path to saved network to evaluate')
 
     # Dataset & Data & Training
     parser.add_argument('--dataset', type=str, help='Dataset Name ("cornell" or "jaquard")')
@@ -22,7 +24,8 @@ def parse_args():
     parser.add_argument('--use-depth', type=int, default=1, help='Use Depth image for evaluation (1/0)')
     parser.add_argument('--use-rgb', type=int, default=0, help='Use RGB image for evaluation (0/1)')
     parser.add_argument('--augment', action='store_true', help='Whether data augmentation should be applied')
-    parser.add_argument('--split', type=float, default=0.9, help='Fraction of data for training (remainder is validation)')
+    parser.add_argument('--split', type=float, default=0.9,
+                        help='Fraction of data for training (remainder is validation)')
     parser.add_argument('--ds-rotate', type=float, default=0.0,
                         help='Shift the start point of the dataset to use a different test/train split')
     parser.add_argument('--num-workers', type=int, default=8, help='Dataset workers')
@@ -43,11 +46,19 @@ def parse_args():
 
 
 if __name__ == '__main__':
+    # python eval_ggcnn.py --network ggcnn
+    # --weights ./output/models/210523_2216_training_example/epoch_47_iou_0.78_statedict.pt
+    # --dataset cornell --dataset-path ./data/ --vis --iou-eval
     args = parse_args()
 
     # Load Network
-    net = torch.load(args.network)
+    input_channels = 1 * args.use_depth + 3 * args.use_rgb
+    ggcnn = get_network(args.network)
+    net = ggcnn(input_channels=input_channels)
+    checkpoint = torch.load(args.weights)
+    net.load_state_dict(checkpoint)
     device = torch.device("cuda:0")
+    net = net.to(device)
 
     # Load Dataset
     logging.info('Loading {} Dataset...'.format(args.dataset.title()))
@@ -72,13 +83,13 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         for idx, (x, y, didx, rot, zoom) in enumerate(test_data):
-            logging.info('Processing {}/{}'.format(idx+1, len(test_data)))
+            logging.info('Processing {}/{}'.format(idx + 1, len(test_data)))
             xc = x.to(device)
             yc = [yi.to(device) for yi in y]
             lossd = net.compute_loss(xc, yc)
 
             q_img, ang_img, width_img = post_process_output(lossd['pred']['pos'], lossd['pred']['cos'],
-                                                        lossd['pred']['sin'], lossd['pred']['width'])
+                                                            lossd['pred']['sin'], lossd['pred']['width'])
 
             if args.iou_eval:
                 s = evaluation.calculate_iou_match(q_img, ang_img, test_data.dataset.get_gtbb(didx, rot, zoom),
@@ -104,8 +115,8 @@ if __name__ == '__main__':
 
     if args.iou_eval:
         logging.info('IOU Results: %d/%d = %f' % (results['correct'],
-                              results['correct'] + results['failed'],
-                              results['correct'] / (results['correct'] + results['failed'])))
+                                                  results['correct'] + results['failed'],
+                                                  results['correct'] / (results['correct'] + results['failed'])))
 
     if args.jacquard_output:
         logging.info('Jacquard output saved to {}'.format(jo_fn))
